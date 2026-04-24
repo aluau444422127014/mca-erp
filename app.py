@@ -1,15 +1,20 @@
-from flask import Flask, render_template, request, redirect
-import sqlite3
-
-import os
+from flask import Flask, render_template, request, redirect, session
+import sqlite3, os
 from werkzeug.middleware.proxy_fix import ProxyFix
-from flask import Flask, session
 
 app = Flask(__name__)
 
-app.secret_key = os.environ.get("SECRET_KEY", "fallback123")   # 🔥 must
-app.config["SESSION_COOKIE_SECURE"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
+# 🔐 secret key (Render env)
+app.secret_key = os.environ.get("SECRET_KEY", "fallback123")
+
+# 🔒 cookie settings (Render HTTPS)
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="None",
+    SESSION_COOKIE_HTTPONLY=True,
+)
+
+# 🌐 proxy fix (Render)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 # DB create
 def init_db():
@@ -121,7 +126,6 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
-
     username = request.form.get('username')
     password = request.form.get('password')
     role = request.form.get('role')
@@ -129,34 +133,26 @@ def login():
     conn = sqlite3.connect("users.db")
     cur = conn.cursor()
 
-    # 🔥 user check
     cur.execute(
         "SELECT * FROM users WHERE username=? AND password=? AND role=?",
         (username, password, role)
     )
-
     user = cur.fetchone()
 
+    print("USER:", user)
+
     if user:
+        session.clear()
         session["role"] = role
         session["username"] = username
 
-        # 🔥 studentனா regno store
-        if role == "student":
-            cur.execute(
-                "SELECT regno FROM students WHERE name=?",
-                (username,)
-            )
-            data = cur.fetchone()
-            if data:
-                session["regno"] = data[0]
+        print("SESSION SET:", dict(session))  # 🔥
 
         conn.close()
-
-        # 🔥 ALWAYS COMMON PAGE
         return redirect('/home')
 
     conn.close()
+    print("LOGIN FAILED")
     return render_template("login.html", error="Invalid login")
 
     
@@ -218,6 +214,8 @@ def logout():
     return redirect('/login')
 @app.route('/home')
 def home():
+    print("SESSION IN HOME:", dict(session))  # 🔥
+
     if not session.get("role"):
         return redirect('/login')
 
