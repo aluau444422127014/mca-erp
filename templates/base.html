@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>College Portal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+   
+</head>
+
+
+<!-- 🔝 NAVBAR -->
+<body>
+
+<!-- 🔷 NAVBAR -->
+<div class="sidebar">
+
+    <h2 class="logo">MCA ERP</h2>
+
+    <a href="/home">Home</a>
+
+    <!-- 🔥 STUDENTS DROPDOWN -->
+    <div class="menu-item" onclick="toggleMenu()">
+         Students ▾
+    </div>
+
+    <div id="studentMenu" class="submenu">
+        <a href="/first_year">First Year</a>
+        <a href="/second_year">Second Year</a>
+    </div>
+
+    <a href="/staff"> Staff</a>
+    <a href="/attendance">Attendance</a>
+
+</div>
+
+<script>
+function toggleMenu(){
+    let menu = document.getElementById("studentMenu");
+
+    if(menu.style.display === "block"){
+        menu.style.display = "none";
+    } else {
+        menu.style.display = "block";
+    }
+}
+</script>
+
+<!-- 🔻 PAGE CONTENT -->
+<div class="main-content">
+    {% block content %}{% endblock %}
+</div>
+
+
+
+<!-- PAGE CONTENT -->
+
+
+</body>
+</html>
