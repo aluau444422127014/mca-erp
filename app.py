@@ -21,7 +21,7 @@ def init_db():
     conn = sqlite3.connect("users.db")
     cur = conn.cursor()
 
-    # users table
+    # 🔥 USERS TABLE
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
@@ -32,7 +32,15 @@ def init_db():
         )
     ''')
 
-    # student table
+    # 🔥 DEFAULT USER (IMPORTANT)
+    cur.execute("SELECT * FROM users WHERE username=?", ("admin",))
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)",
+            ("Admin", "admin", "1234", "staff")
+        )
+
+    # 🔥 STUDENTS TABLE
     cur.execute('''
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY,
@@ -49,7 +57,7 @@ def init_db():
         )
     ''')
 
-    # staff table
+    # 🔥 STAFF TABLE
     cur.execute('''
         CREATE TABLE IF NOT EXISTS staff (
             id INTEGER PRIMARY KEY,
@@ -60,6 +68,7 @@ def init_db():
         )
     ''')
 
+    # 🔥 ATTENDANCE TABLE
     cur.execute('''
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY,
@@ -507,4 +516,5 @@ def add_student_page():
 
 # 🚀 RUN
 if __name__ == "__main__":
+    init_db()          # 🔥 MUST
     app.run()
