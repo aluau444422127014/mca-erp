@@ -2,12 +2,15 @@ from flask import Flask, render_template, request, redirect
 import sqlite3
 
 import os
-
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, session
 
 app = Flask(__name__)
 
 app.secret_key = os.environ.get("SECRET_KEY", "fallback123")   # 🔥 must
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 # DB create
 def init_db():
     conn = sqlite3.connect("users.db")
