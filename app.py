@@ -215,8 +215,7 @@ def logout():
     return redirect('/login')
 @app.route('/home')
 def home():
-
-    if "role" not in session:
+    if not session.get("role"):
         return redirect('/login')
 
     return render_template("home.html")
