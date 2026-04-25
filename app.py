@@ -1,27 +1,22 @@
-from flask import Flask, render_template, request, redirect, session
-import sqlite3, os
+from flask import Flask, render_template, request, redirect
+import sqlite3
+
+import os
 from werkzeug.middleware.proxy_fix import ProxyFix
+from flask import Flask, session
 
 app = Flask(__name__)
 
-# 🔐 secret key (Render env)
-app.secret_key = os.environ.get("SECRET_KEY", "fallback123")
-
-# 🔒 cookie settings (Render HTTPS)
-app.config.update(
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE="None",
-    SESSION_COOKIE_HTTPONLY=True,
-)
-
-# 🌐 proxy fix (Render)
+app.secret_key = os.environ.get("SECRET_KEY", "fallback123") 
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"  # 🔥 must
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 # DB create
 def init_db():
     conn = sqlite3.connect("users.db")
     cur = conn.cursor()
 
-    # 🔥 USERS TABLE
+    # users table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
@@ -32,15 +27,7 @@ def init_db():
         )
     ''')
 
-    # 🔥 DEFAULT USER (IMPORTANT)
-    cur.execute("SELECT * FROM users WHERE username=?", ("admin",))
-    if not cur.fetchone():
-        cur.execute(
-            "INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)",
-            ("Admin", "admin", "1234", "staff")
-        )
-
-    # 🔥 STUDENTS TABLE
+    # student table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY,
@@ -57,7 +44,7 @@ def init_db():
         )
     ''')
 
-    # 🔥 STAFF TABLE
+    # staff table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS staff (
             id INTEGER PRIMARY KEY,
@@ -68,7 +55,6 @@ def init_db():
         )
     ''')
 
-    # 🔥 ATTENDANCE TABLE
     cur.execute('''
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY,
@@ -79,6 +65,24 @@ def init_db():
         )
     ''')
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS subjects (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            semester TEXT,
+            access_key TEXT
+        )
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS marks (
+            id INTEGER PRIMARY KEY,
+            regno TEXT,
+            subject_id INTEGER,
+            exam TEXT,
+            marks TEXT
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -135,6 +139,7 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
+
     username = request.form.get('username')
     password = request.form.get('password')
     role = request.form.get('role')
@@ -146,22 +151,39 @@ def login():
         "SELECT * FROM users WHERE username=? AND password=? AND role=?",
         (username, password, role)
     )
+
     user = cur.fetchone()
 
+    # 🔥 DEBUG PRINT
     print("USER:", user)
 
     if user:
-        session.clear()
         session["role"] = role
         session["username"] = username
 
-        print("SESSION SET:", dict(session))  # 🔥
+        # 🔥 FIXED PART (ONLY THIS CHANGED)
+        if role == "student":
+            cur.execute(
+                "SELECT regno FROM students WHERE regno=?",   # ✅ FIX
+                (username,)
+            )
+            data = cur.fetchone()
+
+            print("STUDENT DATA:", data)   # 🔍 DEBUG
+
+            if data:
+                session["regno"] = data[0]
+
+        # 🔥 DEBUG SESSION
+        print("SESSION AFTER LOGIN:", dict(session))
 
         conn.close()
         return redirect('/home')
 
     conn.close()
-    print("LOGIN FAILED")
+    return "Invalid Login ❌"
+
+    print("LOGIN FAILED ❌")
     return render_template("login.html", error="Invalid login")
 
     
@@ -223,7 +245,6 @@ def logout():
     return redirect('/login')
 @app.route('/home')
 def home():
-    print("SESSION IN HOME:", dict(session))  # 🔥
 
     if not session.get("role"):
         return redirect('/login')
@@ -512,9 +533,207 @@ def add_student_page():
     return render_template("add_student.html", year=year)
 
 
+@app.route('/semester')
+def semester():
+    return render_template("semester.html")
 
+@app.route('/semester/<sem>')
+def subject_list(sem):
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM subjects WHERE semester=?", (sem,))
+    data = cur.fetchall()
+
+    conn.close()
+    return render_template("subjects.html", subjects=data, sem=sem)
+
+@app.route('/add_subject', methods=['POST'])
+def add_subject():
+    name = request.form['name']
+    sem = request.form['semester']
+    key = request.form['key']
+
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+
+    cur.execute(
+        "INSERT INTO subjects (name, semester, access_key) VALUES (?, ?, ?)",
+        (name, sem, key)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return redirect('/semester/' + sem)
+
+
+@app.route('/open_subject/<int:sid>', methods=['POST'])
+def open_subject(sid):
+
+    role = session.get("role")
+
+    # 🔥 STUDENT → no key check
+    if role == "student":
+        return redirect('/subject/' + str(sid))
+
+    # 🔥 STAFF → key check
+    key = request.form.get('key')
+
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+
+    cur.execute("SELECT access_key FROM subjects WHERE id=?", (sid,))
+    data = cur.fetchone()
+
+    conn.close()
+
+    if data and data[0] == key:
+        return redirect('/subject/' + str(sid))
+    else:
+        return "Wrong Key ❌"
+
+@app.route('/subject/<int:sid>')
+def subject_page(sid):
+
+    role = session.get("role")
+
+    # 🔥 GET FILTER VALUES
+    batch = request.args.get("batch")
+    selected_exam = request.args.get("exam", "IIT1")   # ✅ முக்கியம்
+
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+
+    # 🔥 STUDENTS LOAD (batch filter)
+    if batch:
+        cur.execute("SELECT name, regno FROM students WHERE batch=?", (batch,))
+    else:
+        cur.execute("SELECT name, regno FROM students")
+
+    students = cur.fetchall()
+
+    # 🔥 MARKS LOAD
+    cur.execute(
+        "SELECT regno, exam_type, marks FROM marks WHERE subject_id=?",
+        (sid,)
+    )
+    data = cur.fetchall()
+
+    # 🔥 CONVERT TO DICT
+    marks = {}
+
+    for regno, exam_type, mark in data:
+        if regno not in marks:
+            marks[regno] = {}
+
+        marks[regno][exam_type] = mark
+
+    conn.close()
+
+    # 🔥 DEBUG (optional)
+    print("SELECTED EXAM:", selected_exam)
+    print("MARKS:", marks)
+
+    return render_template(
+        "subject_page.html",
+        students=students,
+        marks=marks,
+        sid=sid,
+        role=role,
+        selected_exam=selected_exam,   # ✅ pass to HTML
+        batch=batch                   # ✅ preserve batch
+    )
+
+
+@app.route('/add_marks', methods=['POST'])
+def add_marks():
+    regno = request.form['regno']
+    name = request.form['name']
+    sid = request.form['sid']
+    exam = request.form['exam']
+    marks = request.form['marks']
+
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO marks (regno, student_name, subject_id, exam_type, marks)
+    VALUES (?, ?, ?, ?, ?)
+    """, (regno, name, sid, exam, marks))
+
+    conn.commit()
+    conn.close()
+
+    return redirect('/subject/' + sid)
+
+
+@app.route('/view_marks', methods=['POST'])
+def view_marks():
+    regno = request.form['regno']
+
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT student_name, exam_type, marks 
+    FROM marks 
+    WHERE regno=?
+    """, (regno,))
+
+    data = cur.fetchall()
+    conn.close()
+
+    return render_template("view_marks.html", data=data, regno=regno)
+
+
+@app.route('/save_marks', methods=['POST'])
+def save_marks():
+
+    if session.get("role") != "staff":
+        return "Access Denied"
+
+    sid = request.form.get("sid")
+    exam = request.form.get("exam")
+
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+
+    # 🔥 all students load
+    cur.execute("SELECT regno, name FROM students")
+    students = cur.fetchall()
+
+    for s in students:
+        regno = s[0]
+        name = s[1]
+
+        mark = request.form.get(f"marks_{regno}")
+
+        if mark:
+
+            # 🔥 check existing record
+            cur.execute("""
+            SELECT id FROM marks 
+            WHERE regno=? AND subject_id=? AND exam_type=?
+            """, (regno, sid, exam))
+
+            exist = cur.fetchone()
+
+            if exist:
+                cur.execute("""
+                UPDATE marks SET marks=? WHERE id=?
+                """, (mark, exist[0]))
+            else:
+                cur.execute("""
+                INSERT INTO marks (regno, student_name, subject_id, exam_type, marks)
+                VALUES (?, ?, ?, ?, ?)
+                """, (regno, name, sid, exam, mark))
+
+    conn.commit()
+    conn.close()
+
+    return redirect('/subject/' + sid)
 
 # 🚀 RUN
 if __name__ == "__main__":
-    init_db()          # 🔥 MUST
     app.run()
